@@ -1,0 +1,274 @@
+{
+	"compiler": {
+		"version": "0.6.12+commit.27d51765"
+	},
+	"language": "Solidity",
+	"output": {
+		"abi": [
+			{
+				"anonymous": false,
+				"inputs": [
+					{
+						"indexed": false,
+						"internalType": "uint256",
+						"name": "profit",
+						"type": "uint256"
+					},
+					{
+						"indexed": false,
+						"internalType": "uint256",
+						"name": "loss",
+						"type": "uint256"
+					},
+					{
+						"indexed": false,
+						"internalType": "uint256",
+						"name": "debtPayment",
+						"type": "uint256"
+					},
+					{
+						"indexed": false,
+						"internalType": "uint256",
+						"name": "debtOutstanding",
+						"type": "uint256"
+					}
+				],
+				"name": "Harvested",
+				"type": "event"
+			},
+			{
+				"inputs": [],
+				"name": "apiVersion",
+				"outputs": [
+					{
+						"internalType": "string",
+						"name": "",
+						"type": "string"
+					}
+				],
+				"stateMutability": "pure",
+				"type": "function"
+			},
+			{
+				"inputs": [],
+				"name": "delegatedAssets",
+				"outputs": [
+					{
+						"internalType": "uint256",
+						"name": "",
+						"type": "uint256"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [],
+				"name": "estimatedTotalAssets",
+				"outputs": [
+					{
+						"internalType": "uint256",
+						"name": "",
+						"type": "uint256"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [],
+				"name": "harvest",
+				"outputs": [],
+				"stateMutability": "nonpayable",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "uint256",
+						"name": "callCost",
+						"type": "uint256"
+					}
+				],
+				"name": "harvestTrigger",
+				"outputs": [
+					{
+						"internalType": "bool",
+						"name": "",
+						"type": "bool"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [],
+				"name": "isActive",
+				"outputs": [
+					{
+						"internalType": "bool",
+						"name": "",
+						"type": "bool"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [],
+				"name": "keeper",
+				"outputs": [
+					{
+						"internalType": "address",
+						"name": "",
+						"type": "address"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [],
+				"name": "name",
+				"outputs": [
+					{
+						"internalType": "string",
+						"name": "",
+						"type": "string"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [],
+				"name": "tend",
+				"outputs": [],
+				"stateMutability": "nonpayable",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "uint256",
+						"name": "callCost",
+						"type": "uint256"
+					}
+				],
+				"name": "tendTrigger",
+				"outputs": [
+					{
+						"internalType": "bool",
+						"name": "",
+						"type": "bool"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [],
+				"name": "vault",
+				"outputs": [
+					{
+						"internalType": "address",
+						"name": "",
+						"type": "address"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [],
+				"name": "want",
+				"outputs": [
+					{
+						"internalType": "address",
+						"name": "",
+						"type": "address"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			}
+		],
+		"devdoc": {
+			"kind": "dev",
+			"methods": {},
+			"version": 1
+		},
+		"userdoc": {
+			"kind": "user",
+			"methods": {},
+			"notice": "This interface is here for the keeper bot to use.",
+			"version": 1
+		}
+	},
+	"settings": {
+		"compilationTarget": {
+			"yearn/BaseStrategy.sol": "StrategyAPI"
+		},
+		"evmVersion": "istanbul",
+		"libraries": {},
+		"metadata": {
+			"bytecodeHash": "ipfs"
+		},
+		"optimizer": {
+			"enabled": true,
+			"runs": 200
+		},
+		"remappings": []
+	},
+	"sources": {
+		"openzeppelin/Address.sol": {
+			"keccak256": "0x17de04c9a869de25c86566a4d0ae5569374884a54ac619506073b14197d2f6ed",
+			"license": "MIT",
+			"urls": [
+				"bzz-raw://c5910c7dce55c17825ea964237054a544f164e854732bfdfaf593b612a89f57b",
+				"dweb:/ipfs/QmUQ2gzqoAvYcJ5LqdUEsbMY8aA7tWxFKZjVt8tFgttEVu"
+			]
+		},
+		"openzeppelin/IERC20.sol": {
+			"keccak256": "0x1cf8c1e1a8a8f60671d426bcedba75f5f0509dc74789e2d2475791c0596c33d1",
+			"license": "MIT",
+			"urls": [
+				"bzz-raw://687bcf000696228ec0ab4f0a4a694c5d66386a03e3accb981882e44c267ecc2a",
+				"dweb:/ipfs/QmbbfbCnBKTiqC1avw89kfA3wx8nmJWAWL7AAdu2p8DrHp"
+			]
+		},
+		"openzeppelin/SafeERC20.sol": {
+			"keccak256": "0x310ea9b9461d2a749d7b33f43ae596b24284ff209441fce2750d6f4c53547c78",
+			"license": "MIT",
+			"urls": [
+				"bzz-raw://b197195f7e437ce1da97f8296b43902cbeba216fcbbbf9306b077529083996a1",
+				"dweb:/ipfs/QmWddeqjjYHGFC991iPW69rtqTp13bg8JmWssAudsvpV3T"
+			]
+		},
+		"openzeppelin/SafeMath.sol": {
+			"keccak256": "0x7a187c7031248663ae674cb56acdcea47099c2fa4fde49f91679b14b004e1ce0",
+			"license": "MIT",
+			"urls": [
+				"bzz-raw://5f48576ad6b6ece288d6df1241d22503330c86696f2fb719e61205b2fbc34a8e",
+				"dweb:/ipfs/QmYqDwsCFkEZ9UusAZvLReiRCU1UV8GQ8bzHgeRmCVkSAJ"
+			]
+		},
+		"yearn/BaseStrategy.sol": {
+			"keccak256": "0x14e85ce0237a2510722bd24cbb04a6bd476c3f37a8a0d89edc28aa6ae718e738",
+			"license": "GPL-3.0",
+			"urls": [
+				"bzz-raw://dec7dced3c77fde76e5f13435eb24cc55b464f02cd6b529018263aca023e7366",
+				"dweb:/ipfs/QmegWwXRcgipvmVqkrH37dsNbvfU4V83HftGqqePABCv4S"
+			]
+		},
+		"yearn/StrategyLib.sol": {
+			"keccak256": "0x48be504c964b709c3ef7c5bce636060ce348c3a94cb4ee9ef8c0f1f0c4c3307a",
+			"license": "GPL-3.0",
+			"urls": [
+				"bzz-raw://d4f1e9dca7ba7952f4ce7d68c41eb06cfc328934c20a67d45c4baea30fdae61d",
+				"dweb:/ipfs/QmQabUmkvFZUcLb7ADGRrgGL1Vhog8wW9CfoJokt6ReQ2r"
+			]
+		}
+	},
+	"version": 1
+}
