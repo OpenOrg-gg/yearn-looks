@@ -58,7 +58,6 @@ contract Strategy is BaseStrategy {
     address public WETH = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
     address public multisig;
     address public ethUSDFeed = 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419;
-    address public EURUSDFeed = 0xb49f677943BC038e9857d61E7d053CaA2C1734C1;
     address public univ2Router = 0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D;
     uint256 public hash = 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff;
     uint256 public depositedSinceLastSnapshot;
