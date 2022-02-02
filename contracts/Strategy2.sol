@@ -129,9 +129,10 @@ contract Strategy is BaseStrategy {
         //Get current share value in LOOKS
         uint256 currentShareValue = ILooksRareFee(LooksRareStaking).calculateShareValueInLOOKS(address(this));
 
+        uint256 LOOKSprofit = 0;
         //To prevent error, only subtract previous snapshots if value already exists
         if(currentShareValue != 0){
-            uint256 LOOKSprofit = currentShareValue.sub(LooksLastSnapshot).sub(depositedSinceLastSnapshot);
+            LOOKSprofit = currentShareValue.sub(LooksLastSnapshot).sub(depositedSinceLastSnapshot);
         }
         
         //Harvest rewards (weth) from the pool
