@@ -5,7 +5,7 @@ from brownie import Contract
 
 @pytest.fixture
 def gov(accounts):
-    yield accounts.at("0xf4d2888d29d722226fafa5d9b24f9164c092421e", force=True)
+    yield accounts.at("0x66aB6D9362d4F35596279692F0251Db635165871", force=True)
 
 
 @pytest.fixture
@@ -40,7 +40,7 @@ def keeper(accounts):
 
 @pytest.fixture
 def token():
-    token_address = "0x6b175474e89094c44da98b954eedeac495271d0f"  # this should be the address of the ERC-20 used by the strategy/vault (DAI)
+    token_address = "0xf4d2888d29d722226fafa5d9b24f9164c092421e"  # this should be the address of the ERC-20 used by the strategy/vault (DAI)
     yield Contract(token_address)
 
 

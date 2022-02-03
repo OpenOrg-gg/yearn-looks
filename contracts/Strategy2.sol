@@ -36,7 +36,7 @@ interface IUniswapV2Router02 {
 
 interface ILooksRareFee {
     function calculatePendingRewards(address) external view returns (uint256);
-    function calculateShareValueInLOOKS(address) external view returns (uint256);
+    function calculateSharesValueInLOOKS(address) external view returns (uint256);
     function deposit(uint256, bool) external;
     function harvest() external;
     function withdraw(uint256, bool) external;
@@ -92,18 +92,21 @@ contract Strategy is BaseStrategy {
 
     function estimatedTotalAssets() public view override returns (uint256) {
         // First look at the LOOKS staking shares we have and call the contract for its value in LOOKS token
-        uint256 currentShareValue = ILooksRareFee(LooksRareStaking).calculateShareValueInLOOKS(address(this));
+        uint256 currentShareValue = ILooksRareFee(LooksRareStaking).calculateSharesValueInLOOKS(address(this));
 
         //Check the amount of pending WETH rewards we have as well.
         uint256 currentPendingWeth = ILooksRareFee(LooksRareStaking).calculatePendingRewards(address(this));
+        uint256 expectedReturn = 0;
+        
+        if(currentPendingWeth != 0){
+            //Create path for Univ2 router to estimate the conversion rate of WETH to LOOKS
+            address[] memory path = new address[](2);
+            path[0] = address(WETH);
+            path[1] = address(LOOKSToken);
 
-        //Create path for Univ2 router to estimate the conversion rate of WETH to LOOKS
-        address[] memory path = new address[](2);
-        path[0] = address(WETH);
-        path[1] = address(LOOKSToken);
-
-        //Query to get exchange rate
-        uint256 expectedReturn = IUniswapV2Router02(univ2Router).getAmountsOut(currentPendingWeth, path);
+            //Query to get exchange rate
+            expectedReturn = IUniswapV2Router02(univ2Router).getAmountsOut(currentPendingWeth, path);
+        }
 
         //Add exchange rate to current share value.
         uint256 convertedBalance = currentShareValue + expectedReturn;
@@ -127,7 +130,7 @@ contract Strategy is BaseStrategy {
         //uint profit;
 
         //Get current share value in LOOKS
-        uint256 currentShareValue = ILooksRareFee(LooksRareStaking).calculateShareValueInLOOKS(address(this));
+        uint256 currentShareValue = ILooksRareFee(LooksRareStaking).calculateSharesValueInLOOKS(address(this));
 
         uint256 LOOKSprofit = 0;
         //To prevent error, only subtract previous snapshots if value already exists
@@ -135,8 +138,11 @@ contract Strategy is BaseStrategy {
             LOOKSprofit = currentShareValue.sub(LooksLastSnapshot).sub(depositedSinceLastSnapshot);
         }
         
+        uint256 wethEstimate = ILooksRareFee(LooksRareStaking).calculatePendingRewards(address(this));
         //Harvest rewards (weth) from the pool
-        ILooksRareFee(LooksRareStaking).harvest();
+        if(wethEstimate > 0){
+            ILooksRareFee(LooksRareStaking).harvest();
+        
 
         //Swap any weth into Looks via Univ2 router
         address[] memory path = new address[](2);
@@ -144,28 +150,28 @@ contract Strategy is BaseStrategy {
         path[1] = address(LOOKSToken);
         uint256 expTime = block.timestamp + 3600;
         IUniswapV2Router02(univ2Router).swapExactTokensForTokens(want.balanceOf(address(this)),0,path,address(this),expTime);
+        }
         uint256 finalProfit = LOOKSprofit + want.balanceOf(address(this));
 
         //If there is no debt outstanding, deposit all looks back into contract and report back profit
         if(_debtOutstanding == 0){
-            ILooksRareFee(LooksRareStaking).deposit(want.balanceOf(address(this)) ,false);
+            if(IERC20(LOOKSToken).balanceOf(address(this)) > 1) {
+                ILooksRareFee(LooksRareStaking).deposit(want.balanceOf(address(this)) ,false);
+            }
             return(finalProfit,0,0);
         } else {
             //If there is debt but our balance exceeds the debt, then we can deposit the extra looks back into staking
             if(want.balanceOf(address(this)) > _debtOutstanding){
                 uint256 depositAmnt = want.balanceOf(address(this)).sub(_debtOutstanding);
-                ILooksRareFee(LooksRareStaking).deposit(depositAmnt,false);
+                if(IERC20(LOOKSToken).balanceOf(address(this)) > 1) {
+                    ILooksRareFee(LooksRareStaking).deposit(depositAmnt,false);
+                }
                 return(finalProfit,0,_debtOutstanding);
             } else {
                 //Otherwise report back the balance all as debt payment
                 return(finalProfit,0,want.balanceOf(address(this))); 
             }
         }
-        
-        
-        
-
-        
     }
     
 
@@ -175,13 +181,15 @@ contract Strategy is BaseStrategy {
         uint256 debt = _debtOutstanding;
 
         //Create a snapshot of the current amount of tokens for better calculating rolling profit
-        LooksLastSnapshot = ILooksRareFee(LooksRareStaking).calculateShareValueInLOOKS(address(this));
+        LooksLastSnapshot = ILooksRareFee(LooksRareStaking).calculateSharesValueInLOOKS(address(this));
 
         //Figure out how much can be deposited by subtracting available versus debt
         uint256 toDeposit = want.balanceOf(address(this)).sub(debt);
 
         //Deposit without claim
-        ILooksRareFee(LooksRareStaking).deposit(toDeposit,false);
+        if(toDeposit != 0){
+            ILooksRareFee(LooksRareStaking).deposit(toDeposit,false);
+        }
 
         //Adjust the depositedSinceLastSnapshot so we know how to calculate future profit
         depositedSinceLastSnapshot += toDeposit;
@@ -209,7 +217,9 @@ contract Strategy is BaseStrategy {
         // TODO: Do stuff here to free up to `_amountNeeded` from all positions back into `want`
         // NOTE: Maintain invariant `want.balanceOf(this) >= _liquidatedAmount`
         // NOTE: Maintain invariant `_liquidatedAmount + _loss <= _amountNeeded`
-        ILooksRareFee(LooksRareStaking).withdraw(_amountNeeded,false);
+        if(_amountNeeded != 0){
+            ILooksRareFee(LooksRareStaking).withdraw(_amountNeeded,false);
+        }
 
         uint256 totalAssets = want.balanceOf(address(this));
         if (_amountNeeded > totalAssets) {
