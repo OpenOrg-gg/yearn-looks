@@ -41,6 +41,7 @@ interface ILooksRareFee {
     function harvest() external;
     function withdraw(uint256, bool) external;
     function withdrawAll(bool) external;
+    function userInfo(address) external view returns(uint256, uint256, uint256);
 }
 
 
@@ -97,7 +98,7 @@ contract Strategy is BaseStrategy {
         //Check the amount of pending WETH rewards we have as well.
         uint256 currentPendingWeth = ILooksRareFee(LooksRareStaking).calculatePendingRewards(address(this));
         uint256 expectedReturn = 0;
-        
+
         if(currentPendingWeth != 0){
             //Create path for Univ2 router to estimate the conversion rate of WETH to LOOKS
             address[] memory path = new address[](2);
@@ -217,16 +218,25 @@ contract Strategy is BaseStrategy {
         // TODO: Do stuff here to free up to `_amountNeeded` from all positions back into `want`
         // NOTE: Maintain invariant `want.balanceOf(this) >= _liquidatedAmount`
         // NOTE: Maintain invariant `_liquidatedAmount + _loss <= _amountNeeded`
+        uint256 liveShareValue = ILooksRareFee(LooksRareStaking).calculateSharesValueInLOOKS(address(this));
+        (uint256 shares, , ) = ILooksRareFee(LooksRareStaking).userInfo(address(this));
+        uint256 sharesNeeded = _amountNeeded.div(liveShareValue);
         if(_amountNeeded != 0){
-            ILooksRareFee(LooksRareStaking).withdraw(_amountNeeded,false);
+            if(sharesNeeded < shares){
+                ILooksRareFee(LooksRareStaking).withdraw(sharesNeeded,false);
+            } else {
+                ILooksRareFee(LooksRareStaking).withdrawAll(true);
+            }
         }
 
         uint256 totalAssets = want.balanceOf(address(this));
         if (_amountNeeded > totalAssets) {
             _liquidatedAmount = totalAssets;
             _loss = _amountNeeded.sub(totalAssets);
+            return(_liquidatedAmount, _loss);
         } else {
             _liquidatedAmount = _amountNeeded;
+            return(_liquidatedAmount,0);
         }
     }
 
@@ -242,6 +252,7 @@ contract Strategy is BaseStrategy {
     function prepareMigration(address _newStrategy) internal override {
         // TODO: Transfer any non-`want` tokens to the new strategy
         // NOTE: `migrate` will automatically forward all `want` in this strategy to the new one
+        liquidateAllPositions();
     }
 
     // Override this to add all tokens/tokenized positions this contract manages
