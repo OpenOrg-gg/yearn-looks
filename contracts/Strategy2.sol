@@ -210,17 +210,27 @@ contract Strategy is BaseStrategy {
 
     }
 
+event amountNeededEvent(uint256 _amount);
+event liveShareValueEvent(uint256 _amount);
+event sharesOwnedEvent(uint256 _amount);
+event sharedNeededEvent(uint256 _amount);
+event postWithdrawBalanceEvent(uint256 _amount);
+
     function liquidatePosition(uint256 _amountNeeded)
         internal
         override
         returns (uint256 _liquidatedAmount, uint256 _loss)
     {
+        emit amountNeededEvent(_amountNeeded);
         // TODO: Do stuff here to free up to `_amountNeeded` from all positions back into `want`
         // NOTE: Maintain invariant `want.balanceOf(this) >= _liquidatedAmount`
         // NOTE: Maintain invariant `_liquidatedAmount + _loss <= _amountNeeded`
         uint256 liveShareValue = ILooksRareFee(LooksRareStaking).calculateSharesValueInLOOKS(address(this));
+        emit liveShareValueEvent(liveShareValue);
         (uint256 shares, , ) = ILooksRareFee(LooksRareStaking).userInfo(address(this));
-        uint256 sharesNeeded = _amountNeeded.div(liveShareValue);
+        emit sharesOwnedEvent(shares);
+        uint256 sharesNeeded = _amountNeeded.mul(1e18).div(liveShareValue);
+        emit sharedNeededEvent(sharesNeeded);
         if(_amountNeeded != 0){
             if(sharesNeeded < shares){
                 ILooksRareFee(LooksRareStaking).withdraw(sharesNeeded,false);
@@ -230,6 +240,8 @@ contract Strategy is BaseStrategy {
         }
 
         uint256 totalAssets = want.balanceOf(address(this));
+        emit postWithdrawBalanceEvent(totalAssets);
+        
         if (_amountNeeded > totalAssets) {
             _liquidatedAmount = totalAssets;
             _loss = _amountNeeded.sub(totalAssets);
