@@ -14,7 +14,7 @@ def test_vault_shutdown_can_withdraw(
     assert token.balanceOf(vault.address) == amount
 
     if token.balanceOf(user) > 0:
-        token.transfer(ZERO_ADDRESS, token.balanceOf(user), {"from": user})
+        token.transfer("0x000000000000000000000000000000000000dEaD", token.balanceOf(user), {"from": user})
 
     # Harvest 1: Send funds through the strategy
     strategy.harvest()
