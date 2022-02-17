@@ -1,4 +1,10 @@
-# Yearn Strategy Brownie Mix
+# Yearn Strategy - $LOOKS staking vault.
+
+Protocol due dilligence and strategy outline can be found here: https://hackmd.io/@-c0MLh5CTZOQ3HyKamAsvQ/HkhmluZkc
+
+Strategy deposits users $LOOKS into a vault, claims WETH swaps WETH->$LOOKS and restakes. 
+
+The $LOOKS emission rewards auto compound in the contract and do not need to be claimed in order to restake. 
 
 ## What you'll find here
 
