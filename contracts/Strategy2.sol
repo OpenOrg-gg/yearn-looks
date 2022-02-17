@@ -55,23 +55,23 @@ contract Strategy is BaseStrategy {
     using Address for address;
     using SafeMath for uint256;
 
-    //Do we use paused somehwere?
-    bool public paused;
-
     //staking contract
-    address public LooksRareStaking = 0xBcD7254A1D759EFA08eC7c3291B2E85c5dCC12ce;
+    address public constant LooksRareStaking = 0xBcD7254A1D759EFA08eC7c3291B2E85c5dCC12ce;
 
     //$LOOKS token
-    address public LOOKSToken = 0xf4d2888d29D722226FafA5d9B24F9164c092421E;
+    address public constant LOOKSToken = 0xf4d2888d29D722226FafA5d9B24F9164c092421E;
 
     //$WETH as I don't think we get actual ETH
-    address public WETH = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
+    address public constant WETH = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
 
     //hard code univ2 router
-    address public univ2Router = 0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D;
+    IUniswapV2Router02 public constant univ2router = IUniswapV2Router02(0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D);
 
-    //Hash for 256-1 on approve
-    uint256 public hash = 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff;
+    //hard code staking contract
+    ILooksRareFee public constant looksRareContract = ILooksRareFee(0xBcD7254A1D759EFA08eC7c3291B2E85c5dCC12ce);
+
+    //max for 256-1 on approve
+    uint256 public constant max = type(uint256).max;
 
     constructor(address _vault) public BaseStrategy(_vault) {
         // You can set these parameters on deployment to whatever you want
@@ -87,29 +87,31 @@ contract Strategy is BaseStrategy {
         return "StrategyLooksRareFeeShare";
     }
 
+    function _pendingRewards() internal view returns(uint256) {
+        uint256 wethEstimate = looksRareContract.calculatePendingRewards(address(this));
+        return wethEstimate;
+    }
+
+    function _stakedAmount() internal view returns(uint256){
+        uint256 currentShareValue = looksRareContract.calculateSharesValueInLOOKS(address(this));
+        return currentShareValue;
+    }
+
+    function _sharePrice() internal view returns(uint256){
+       uint256 sharePrice = looksRareContract.calculateSharePriceInLOOKS();
+       return sharePrice;
+    }
+
+    function balanceOfWant() public view returns (uint256){
+        return want.balanceOf(address(this));
+    }
+
     function estimatedTotalAssets() public view override returns (uint256) {
         // First look at the LOOKS staking shares we have and call the contract for its value in LOOKS token
-        uint256 currentShareValue = ILooksRareFee(LooksRareStaking).calculateSharesValueInLOOKS(address(this));
-
-        //Check the amount of pending WETH rewards we have as well.
-        uint256 currentPendingWeth = ILooksRareFee(LooksRareStaking).calculatePendingRewards(address(this));
-        uint256 expectedReturn = 0;
-
-        if(currentPendingWeth != 0){
-            //Create path for Univ2 router to estimate the conversion rate of WETH to LOOKS
-            address[] memory path = new address[](2);
-            path[0] = address(WETH);
-            path[1] = address(LOOKSToken);
-
-            //Query to get exchange rate
-            expectedReturn = IUniswapV2Router02(univ2Router).getAmountsOut(currentPendingWeth, path);
-        }
-
-        //Add exchange rate to current share value.
-        uint256 convertedBalance = currentShareValue + expectedReturn;
+        uint256 currentShareValue = _stakedAmount();
         
         //Return total
-        return want.balanceOf(address(this)).add(convertedBalance);
+        return balanceOfWant().add(currentShareValue);
     }
 
 event vaultDebtEvent(uint256 _amount);
@@ -142,27 +144,21 @@ event withdrawPreReportEvent(uint256 _amount);
         uint256 LOOKSprofit = 0;
         
         //Estimate any pending weth rewards
-        uint256 wethEstimate = ILooksRareFee(LooksRareStaking).calculatePendingRewards(address(this));
+        uint256 wethEstimate = _pendingRewards();
         emit wethEstimateEvent(wethEstimate);
 
         uint swapAmount = 0;
 
         //Harvest rewards (weth) from the pool if greater than zero.
         if(wethEstimate > 0){
-            ILooksRareFee(LooksRareStaking).harvest();
+            looksRareContract.harvest();
 
-            //Swap any weth into Looks via Univ2 router (should I be doing any type of MEV protection here or using a routing protocol?)
-            address[] memory path = new address[](2);
-            path[0] = address(WETH);
-            path[1] = address(LOOKSToken);
-            uint256 expTime = block.timestamp + 3600;
-            uint256[] memory returnedAmounts = IUniswapV2Router02(univ2Router).swapExactTokensForTokens(IERC20(WETH).balanceOf(address(this)),0,path,address(this),expTime);
-            swapAmount = returnedAmounts[1];
-            emit swapAmountEvent(swapAmount);
+            swapAmount = _sellRewards();
+
         }
 
         //Get current total LOOKS value of our share position
-        uint256 currentShareValue = ILooksRareFee(LooksRareStaking).calculateSharesValueInLOOKS(address(this));
+        uint256 currentShareValue = _stakedAmount();
         emit prepareReturnSharesValueEvent(currentShareValue);
 
         //calculate the rough profit to so we can withdraw it and pass the vault.report balance check.
@@ -172,7 +168,7 @@ event withdrawPreReportEvent(uint256 _amount);
         uint256 estFinalProfit = LOOKSprofit.sub(vaultDebt);
 
         //get the current LOOKS per share price.
-        uint256 sharePrice = ILooksRareFee(LooksRareStaking).calculateSharePriceInLOOKS();
+        uint256 sharePrice = _sharePrice();
 
         //calculate the amount of LOOKS we withdraw based on shares.
         uint256 withdrawPreReport = estFinalProfit.mul(1e18).div(sharePrice);
@@ -181,13 +177,13 @@ event withdrawPreReportEvent(uint256 _amount);
         //If we need to withdraw more than the floor of 1 LOOKS.
         if(withdrawPreReport > 1){
             //withdraw the profit amount but do not claim rewards as we calculate that elsewhere.
-            ILooksRareFee(LooksRareStaking).withdraw(withdrawPreReport,false);
+            looksRareContract.withdraw(withdrawPreReport,false);
         }
 
         //readjust final profit report in case of changes in balances.
 
         //recheck share value position.
-        currentShareValue = ILooksRareFee(LooksRareStaking).calculateSharesValueInLOOKS(address(this));
+        currentShareValue = _stakedAmount();
 
         //recalculate looks profit based on our currentshare value plus the amount of want held in this address.
         LOOKSprofit = currentShareValue.add(IERC20(LOOKSToken).balanceOf(address(this)));
@@ -237,20 +233,20 @@ event toDepositFloorEvent(uint256 _amount);
 
         //Deposit without claim as we'll claim rewards only on a prepare to better track.
         if(toDeposit > depositFloor){
-            ILooksRareFee(LooksRareStaking).deposit(toDeposit,false);
+            looksRareContract.deposit(toDeposit,false);
         }
     }
 
     function firstTimeApprovals() public {
         //check if tokens are approved as needed.
         if(IERC20(LOOKSToken).allowance(address(this),LooksRareStaking) == 0){
-            IERC20(LOOKSToken).approve(LooksRareStaking, hash);
+            IERC20(LOOKSToken).approve(LooksRareStaking, max);
         }
-        if(IERC20(LOOKSToken).allowance(address(this),univ2Router) == 0){
-            IERC20(LOOKSToken).approve(univ2Router, hash);
+        if(IERC20(LOOKSToken).allowance(address(this),address(univ2router)) == 0){
+            IERC20(LOOKSToken).approve(address(univ2router), max);
         }
-        if(IERC20(WETH).allowance(address(this),univ2Router) == 0){
-            IERC20(WETH).approve(univ2Router, hash);
+        if(IERC20(WETH).allowance(address(this),address(univ2router)) == 0){
+            IERC20(WETH).approve(address(univ2router), max);
         }
 
     }
@@ -273,15 +269,15 @@ event postWithdrawBalanceEvent(uint256 _amount);
         // NOTE: Maintain invariant `_liquidatedAmount + _loss <= _amountNeeded`
 
         //Get the current amount of our entire share position expressed in LOOKS
-        uint256 liveShareValue = ILooksRareFee(LooksRareStaking).calculateSharesValueInLOOKS(address(this));
+        uint256 liveShareValue = _stakedAmount();
 
         //Get the current share price expressed in LOOKS
-        uint256 generalSharePrice = ILooksRareFee(LooksRareStaking).calculateSharePriceInLOOKS();
+        uint256 generalSharePrice = _sharePrice();
         emit sharePriceCompareEvent(generalSharePrice);
         emit liveShareValueEvent(liveShareValue);
 
         //Get the amount of shares that the strategy holds in total.
-        (uint256 shares, , ) = ILooksRareFee(LooksRareStaking).userInfo(address(this));
+        (uint256 shares, , ) = looksRareContract.userInfo(address(this));
         emit sharesOwnedEvent(shares);
 
         //Calculate how many shares we need to cash out to get enough LOOKS to cover _amountNeeded.
@@ -294,10 +290,10 @@ event postWithdrawBalanceEvent(uint256 _amount);
             //Check if we have enough shares total.
             if(sharesNeeded <= shares){
                 //if we have enough shares, then withdraw only the specific share amount needed.
-                ILooksRareFee(LooksRareStaking).withdraw(sharesNeeded,false);
+                looksRareContract.withdraw(sharesNeeded,false);
             } else {
                 //if we do not have enough shares then we should withdraw all shares, however, we should not claim WETH rewards as converting them here would not be captured under profit.
-                ILooksRareFee(LooksRareStaking).withdrawAll(false);
+                looksRareContract.withdrawAll(false);
             }
         }
 
@@ -322,29 +318,33 @@ event postWithdrawBalanceEvent(uint256 _amount);
     function liquidateAllPositions() internal override returns (uint256) {
         // TODO: Liquidate all positions and return the amount freed.
 
-        //To ensure we can liquidate all positions, we actually first run an adjust position saying 0 is needed, so we can know confidently all assets are deposited in the contract.
-        adjustPosition(0);
-
         //We then withdraw with claim to get the full balance including the latest rewards
-        ILooksRareFee(LooksRareStaking).withdrawAll(true);
+        looksRareContract.withdrawAll(true);
 
         //We do a check to see if we have any WETH from the last rewards set that isn't converted.
         uint256 wethCheck = IERC20(WETH).balanceOf(address(this));
 
         //If the WETH balance is non-zero we'll initiate a swap.
         if(wethCheck != 0){
-        //Swap any weth into Looks via Univ2 router
-            address[] memory path = new address[](2);
-            path[0] = address(WETH);
-            path[1] = address(LOOKSToken);
-            uint256 expTime = block.timestamp + 3600;
-            uint256[] memory returnedAmounts = IUniswapV2Router02(univ2Router).swapExactTokensForTokens(IERC20(WETH).balanceOf(address(this)),0,path,address(this),expTime);
+            _sellRewards();
         }
         
         //Now that all possible rewards are fully in LOOKS and in this address, we return the balance expressed in LOOKS
         return want.balanceOf(address(this));
     }
 
+
+    function _sellRewards() internal returns(uint256){
+            uint256 swapAmount;
+            address[] memory path = new address[](2);
+            path[0] = address(WETH);
+            path[1] = address(LOOKSToken);
+            uint256 expTime = block.timestamp + 3600;
+            uint256[] memory returnedAmounts = univ2router.swapExactTokensForTokens(IERC20(WETH).balanceOf(address(this)),0,path,address(this),expTime);
+            swapAmount = returnedAmounts[1];
+            emit swapAmountEvent(swapAmount);
+            return swapAmount;
+    }
     // NOTE: Can override `tendTrigger` and `harvestTrigger` if necessary
 
     function prepareMigration(address _newStrategy) internal override {

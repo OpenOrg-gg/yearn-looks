@@ -42,7 +42,7 @@ def test_basic_shutdown(
     # Harvest 1: Send funds through the strategy
     strategy.harvest()
     chain.mine(100)
-    assert pytest.approx(strategy.estimatedTotalAssets(), rel=RELATIVE_APPROX) >= amount
+    assert pytest.approx(strategy.estimatedTotalAssets(), rel=RELATIVE_APPROX) == amount
 
     ## Earn interest
     chain.sleep(3600 * 24 * 1)  ## Sleep 1 day
