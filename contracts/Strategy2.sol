@@ -16,6 +16,7 @@ import {
     IERC20,
     Address
 } from "./openzeppelin/SafeERC20.sol";
+import {Math} from "./openzeppelin/Math.sol";
 
 // Import interfaces for many popular DeFi projects, or add your own!
 //import "../interfaces/<protocol>/<Interface>.sol";
@@ -43,6 +44,10 @@ interface ILooksRareFee {
     function withdrawAll(bool) external;
     function userInfo(address) external view returns(uint256, uint256, uint256);
     function calculateSharePriceInLOOKS() external view returns(uint256);
+}
+
+interface IDecimals {
+    function decimals() external view returns (uint8);
 }
 
 
@@ -78,6 +83,7 @@ contract Strategy is BaseStrategy {
         // maxReportDelay = 6300;
         // profitFactor = 100;
         // debtThreshold = 0;
+        firstTimeApprovals();
     }
 
     // ******** OVERRIDE THESE METHODS FROM BASE CONTRACT ************
@@ -87,19 +93,16 @@ contract Strategy is BaseStrategy {
         return "StrategyLooksRareFeeShare";
     }
 
-    function _pendingRewards() internal view returns(uint256) {
-        uint256 wethEstimate = looksRareContract.calculatePendingRewards(address(this));
-        return wethEstimate;
+    function _pendingRewards() internal view returns(uint256 wethEstimate) {
+        wethEstimate = looksRareContract.calculatePendingRewards(address(this));
     }
 
-    function _stakedAmount() internal view returns(uint256){
-        uint256 currentShareValue = looksRareContract.calculateSharesValueInLOOKS(address(this));
-        return currentShareValue;
+    function _stakedAmount() public view returns(uint256 currentShareValue){
+        currentShareValue = looksRareContract.calculateSharesValueInLOOKS(address(this));
     }
 
-    function _sharePrice() internal view returns(uint256){
-       uint256 sharePrice = looksRareContract.calculateSharePriceInLOOKS();
-       return sharePrice;
+    function _sharePrice() internal view returns(uint256 sharePrice){
+       sharePrice = looksRareContract.calculateSharePriceInLOOKS();
     }
 
     function balanceOfWant() public view returns (uint256){
@@ -114,6 +117,22 @@ contract Strategy is BaseStrategy {
         return balanceOfWant().add(currentShareValue);
     }
 
+    function withdrawProfitOrFloor(uint profit) internal {
+        //Ensure we're not going to attempt to sub from unneeded balance
+        uint256 amount = 0;
+        if(profit > balanceOfWant()){
+            uint256 amount = profit.sub(balanceOfWant());
+        }
+        uint256 base = 1e18;
+        //Check that our staked amount is greater than 1 token which is min
+        //This way we do not attempt to withdraw 0 (which reverts)
+        if(_stakedAmount() >= base){
+            //Withdraw the larger of the needed amount or of the base number.
+            //In the case where we only need 0.5 LOOKS to meet our balance obligations we round up to 1 LOOKS to meet the withdraw floor.
+            looksRareContract.withdraw(Math.max(amount,base),false);
+        }
+    }
+
 event vaultDebtEvent(uint256 _amount);
 event wethEstimateEvent(uint256 _amount);
 event swapAmountEvent(uint256 _amount);
@@ -121,7 +140,6 @@ event prepareReturnSharesValueEvent(uint256 _amount);
 event LOOKSProfitEvent(uint256 _amount);
 event finalProfitEvent(uint256 _amount);
 event debtOutstandingEvent(uint256 _amount);
-event balanceCheckEvent(uint256 _amount);
 event withdrawPreReportEvent(uint256 _amount);
 
     function prepareReturn(uint256 _debtOutstanding)
@@ -152,52 +170,33 @@ event withdrawPreReportEvent(uint256 _amount);
         //Harvest rewards (weth) from the pool if greater than zero.
         if(wethEstimate > 0){
             looksRareContract.harvest();
-
             swapAmount = _sellRewards();
+        }
 
+        //calculate the amount of LOOKS we need, cannot be less than 1 due to contract restrictions.
+        if(_debtOutstanding <= 1e18 && balanceOfWant() < _debtOutstanding){
+            uint256 sharePrice = _sharePrice();
+            uint256 withdrawPreReport = _debtOutstanding.mul(10 ** IDecimals(address(want)).decimals()).div(sharePrice);
+            //Withdraw any extra needed LOOKS > 1. Do not claim rewards as they were already claimed so we can save gas here.
+            looksRareContract.withdraw(withdrawPreReport,false);
         }
 
         //Get current total LOOKS value of our share position
         uint256 currentShareValue = _stakedAmount();
         emit prepareReturnSharesValueEvent(currentShareValue);
 
-        //calculate the rough profit to so we can withdraw it and pass the vault.report balance check.
-        LOOKSprofit = currentShareValue.add(IERC20(LOOKSToken).balanceOf(address(this)));
+        //calculate the total holdings in LOOKS
+        LOOKSprofit = currentShareValue.add(balanceOfWant());
         
-        //estimate our profit by subtracting the vault debt
-        uint256 estFinalProfit = LOOKSprofit.sub(vaultDebt);
-
-        //get the current LOOKS per share price.
-        uint256 sharePrice = _sharePrice();
-
-        //calculate the amount of LOOKS we withdraw based on shares.
-        uint256 withdrawPreReport = estFinalProfit.mul(1e18).div(sharePrice);
-        emit withdrawPreReportEvent(withdrawPreReport);
-
-        //If we need to withdraw more than the floor of 1 LOOKS.
-        if(withdrawPreReport > 1){
-            //withdraw the profit amount but do not claim rewards as we calculate that elsewhere.
-            looksRareContract.withdraw(withdrawPreReport,false);
-        }
-
-        //readjust final profit report in case of changes in balances.
-
-        //recheck share value position.
-        currentShareValue = _stakedAmount();
-
-        //recalculate looks profit based on our currentshare value plus the amount of want held in this address.
-        LOOKSprofit = currentShareValue.add(IERC20(LOOKSToken).balanceOf(address(this)));
-        emit LOOKSProfitEvent(LOOKSprofit);
-
         //Calculate final profit as delta between our LOOKSprofit and the total vault debt. Should be impossible for it to be a loss unless pool is drained.
         uint256 finalProfit = LOOKSprofit.sub(vaultDebt);
 
-
         emit finalProfitEvent(finalProfit);
 
-        //double check our total balance -- this is for sake of the emit event and can be removed.
-        uint256 balanceCheck = want.balanceOf(address(this));
-        emit balanceCheckEvent(balanceCheck);
+        //Invoke funciton to withdraw the difference between profit and gain in the LOOKS token
+        //This is because in Yearn Vaults line #1746 enforces a check that the balance must be greater than gain + debtpayment
+        //We must calculate the growth in staked LOOKS otherwise it isn't ever going to get claimed, and we must withdraw it to pass this revert check.
+        withdrawProfitOrFloor(finalProfit);
 
         //If there is no debt outstanding, deposit all looks back into contract and report back profit
         emit debtOutstandingEvent(_debtOutstanding);
@@ -205,11 +204,11 @@ event withdrawPreReportEvent(uint256 _amount);
             return(finalProfit,0,0);
         } else {
             //If there is debt but our balance exceeds the debt
-            if(want.balanceOf(address(this)) > _debtOutstanding){
+            if(balanceOfWant() > _debtOutstanding){
                 return(finalProfit,0,_debtOutstanding);
             } else {
                 //Otherwise report back the balance all as debt payment
-                return(finalProfit,0,want.balanceOf(address(this))); 
+                return(finalProfit,0,balanceOfWant()); 
             }
         }
     }
@@ -237,7 +236,7 @@ event toDepositFloorEvent(uint256 _amount);
         }
     }
 
-    function firstTimeApprovals() public {
+    function firstTimeApprovals() internal {
         //check if tokens are approved as needed.
         if(IERC20(LOOKSToken).allowance(address(this),LooksRareStaking) == 0){
             IERC20(LOOKSToken).approve(LooksRareStaking, max);
@@ -268,32 +267,35 @@ event postWithdrawBalanceEvent(uint256 _amount);
         // NOTE: Maintain invariant `want.balanceOf(this) >= _liquidatedAmount`
         // NOTE: Maintain invariant `_liquidatedAmount + _loss <= _amountNeeded`
 
-        //Get the current amount of our entire share position expressed in LOOKS
-        uint256 liveShareValue = _stakedAmount();
-
-        //Get the current share price expressed in LOOKS
-        uint256 generalSharePrice = _sharePrice();
-        emit sharePriceCompareEvent(generalSharePrice);
-        emit liveShareValueEvent(liveShareValue);
-
-        //Get the amount of shares that the strategy holds in total.
-        (uint256 shares, , ) = looksRareContract.userInfo(address(this));
-        emit sharesOwnedEvent(shares);
-
-        //Calculate how many shares we need to cash out to get enough LOOKS to cover _amountNeeded.
-        uint256 sharesNeeded = _amountNeeded.mul(1e18).div(generalSharePrice);
-        emit sharedNeededEvent(sharesNeeded);
-
-        //Sanity check that _amountNeeded non-zero or will revert.
+        //Sanitycheck that amount needed is not 0
         if(_amountNeeded != 0){
+            uint256 unusedBalance = balanceOfWant();
 
-            //Check if we have enough shares total.
-            if(sharesNeeded <= shares){
-                //if we have enough shares, then withdraw only the specific share amount needed.
-                looksRareContract.withdraw(sharesNeeded,false);
-            } else {
-                //if we do not have enough shares then we should withdraw all shares, however, we should not claim WETH rewards as converting them here would not be captured under profit.
-                looksRareContract.withdrawAll(false);
+            if(unusedBalance < _amountNeeded){
+                //Get the current amount of our entire share position expressed in LOOKS
+                uint256 liveShareValue = _stakedAmount();
+
+                //Get the current share price expressed in LOOKS
+                uint256 generalSharePrice = _sharePrice();
+                emit sharePriceCompareEvent(generalSharePrice);
+                emit liveShareValueEvent(liveShareValue);
+
+                //Get the amount of shares that the strategy holds in total.
+                (uint256 shares, , ) = looksRareContract.userInfo(address(this));
+                emit sharesOwnedEvent(shares);
+
+                //Calculate how many shares we need to cash out to get enough LOOKS to cover _amountNeeded.
+                uint256 sharesNeeded = (_amountNeeded.sub(unusedBalance)).mul(1e18).div(generalSharePrice);
+                emit sharedNeededEvent(sharesNeeded);
+
+                //Check if we have enough shares total.
+                if(sharesNeeded <= shares){
+                    //if we have enough shares, then withdraw only the specific share amount needed.
+                    looksRareContract.withdraw(sharesNeeded,false);
+                } else {
+                    //if we do not have enough shares then we should withdraw all shares, however, we should not claim WETH rewards as converting them here would not be captured under profit.
+                    looksRareContract.withdrawAll(false);
+                }
             }
         }
 
