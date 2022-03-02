@@ -64,10 +64,10 @@ contract Strategy is BaseStrategy {
     address public constant LooksRareStaking = 0xBcD7254A1D759EFA08eC7c3291B2E85c5dCC12ce;
 
     //$LOOKS token
-    address public constant LOOKSToken = 0xf4d2888d29D722226FafA5d9B24F9164c092421E;
+    IERC20 public constant LOOKSToken = IERC20(0xf4d2888d29D722226FafA5d9B24F9164c092421E);
 
     //$WETH as I don't think we get actual ETH
-    address public constant WETH = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
+    IERC20 public constant WETH = IERC20(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
 
     //hard code univ2 router
     IUniswapV2Router02 public constant univ2router = IUniswapV2Router02(0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D);
@@ -77,6 +77,9 @@ contract Strategy is BaseStrategy {
 
     //max for 256-1 on approve
     uint256 public constant max = type(uint256).max;
+
+    //Base amount for floor $LOOKS token
+    uint256 private constant base = 1e18;
 
     constructor(address _vault) public BaseStrategy(_vault) {
         // You can set these parameters on deployment to whatever you want
@@ -121,9 +124,8 @@ contract Strategy is BaseStrategy {
         //Ensure we're not going to attempt to sub from unneeded balance
         uint256 amount = 0;
         if(profit > balanceOfWant()){
-            uint256 amount = profit.sub(balanceOfWant());
+            amount = profit.sub(balanceOfWant());
         }
-        uint256 base = 1e18;
         //Check that our staked amount is greater than 1 token which is min
         //This way we do not attempt to withdraw 0 (which reverts)
         if(_stakedAmount() >= base){
@@ -200,16 +202,13 @@ event withdrawPreReportEvent(uint256 _amount);
 
         //If there is no debt outstanding, deposit all looks back into contract and report back profit
         emit debtOutstandingEvent(_debtOutstanding);
-        if(_debtOutstanding == 0){
-            return(finalProfit,0,0);
+        if(finalProfit < _debtOutstanding){
+            _profit = 0;
+            _debtPayment = balanceOfWant();
+            _loss = _debtOutstanding.sub(_debtPayment);
         } else {
-            //If there is debt but our balance exceeds the debt
-            if(balanceOfWant() > _debtOutstanding){
-                return(finalProfit,0,_debtOutstanding);
-            } else {
-                //Otherwise report back the balance all as debt payment
-                return(finalProfit,0,balanceOfWant()); 
-            }
+            _profit = finalProfit.sub(_debtOutstanding);
+            _debtPayment = _debtOutstanding;
         }
     }
     
@@ -238,14 +237,14 @@ event toDepositFloorEvent(uint256 _amount);
 
     function firstTimeApprovals() internal {
         //check if tokens are approved as needed.
-        if(IERC20(LOOKSToken).allowance(address(this),LooksRareStaking) == 0){
-            IERC20(LOOKSToken).approve(LooksRareStaking, max);
+        if(LOOKSToken.allowance(address(this),LooksRareStaking) == 0){
+            LOOKSToken.approve(LooksRareStaking, max);
         }
-        if(IERC20(LOOKSToken).allowance(address(this),address(univ2router)) == 0){
-            IERC20(LOOKSToken).approve(address(univ2router), max);
+        if(LOOKSToken.allowance(address(this),address(univ2router)) == 0){
+            LOOKSToken.approve(address(univ2router), max);
         }
-        if(IERC20(WETH).allowance(address(this),address(univ2router)) == 0){
-            IERC20(WETH).approve(address(univ2router), max);
+        if(WETH.allowance(address(this),address(univ2router)) == 0){
+            WETH.approve(address(univ2router), max);
         }
 
     }
@@ -268,7 +267,7 @@ event postWithdrawBalanceEvent(uint256 _amount);
         // NOTE: Maintain invariant `_liquidatedAmount + _loss <= _amountNeeded`
 
         //Sanitycheck that amount needed is not 0
-        if(_amountNeeded != 0){
+        if(_amountNeeded > 0){
             uint256 unusedBalance = balanceOfWant();
 
             if(unusedBalance < _amountNeeded){
@@ -300,7 +299,7 @@ event postWithdrawBalanceEvent(uint256 _amount);
         }
 
         //We now check the total assets amount we have post withdraw.
-        uint256 totalAssets = want.balanceOf(address(this));
+        uint256 totalAssets = balanceOfWant();
         emit postWithdrawBalanceEvent(totalAssets);
 
         //If the amount we need is more than the total amount of assets we have.
