@@ -319,8 +319,8 @@ event postWithdrawBalanceEvent(uint256 _amount);
     function liquidateAllPositions() internal override returns (uint256) {
         // TODO: Liquidate all positions and return the amount freed.
 
-        //We then withdraw with claim to get the full balance including the latest rewards
-        looksRareContract.withdrawAll(true);
+        //Full withdraw excluding rewards incase of reward errors.
+        looksRareContract.withdrawAll(false);
 
         //We do a check to see if we have any WETH from the last rewards set that isn't converted.
         uint256 wethCheck = IERC20(WETH).balanceOf(address(this));
@@ -351,7 +351,19 @@ event postWithdrawBalanceEvent(uint256 _amount);
     function prepareMigration(address _newStrategy) internal override {
         // TODO: Transfer any non-`want` tokens to the new strategy
         // NOTE: `migrate` will automatically forward all `want` in this strategy to the new one
-        liquidateAllPositions();
+        
+        //Full withdraw including rewards as this is not an emergency liquidation
+        looksRareContract.withdrawAll(false);
+
+        //We do a check to see if we have any WETH from the last rewards set that isn't converted.
+        uint256 wethCheck = IERC20(WETH).balanceOf(address(this));
+
+        //If the WETH balance is non-zero we'll initiate a swap.
+        if(wethCheck != 0){
+            _sellRewards();
+        }
+        
+            
     }
 
     // Override this to add all tokens/tokenized positions this contract manages
