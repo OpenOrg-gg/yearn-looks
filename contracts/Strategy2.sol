@@ -120,18 +120,28 @@ contract Strategy is BaseStrategy {
         return balanceOfWant().add(currentShareValue);
     }
 
-    function withdrawProfitOrFloor(uint profit) internal {
+    function withdrawProfitOrFloor(uint profit, uint256 debtOutstanding) internal {
         //Ensure we're not going to attempt to sub from unneeded balance
+        uint256 sharePrice = _sharePrice();
         uint256 amount = 0;
         if(profit > balanceOfWant()){
             amount = profit.sub(balanceOfWant());
         }
+        if(amount > 0){
+            amount = amount.mul(10 ** IDecimals(address(want)).decimals()).div(sharePrice);
+        }
         //Check that our staked amount is greater than 1 token which is min
         //This way we do not attempt to withdraw 0 (which reverts)
         if(_stakedAmount() >= base){
+            uint256 convertedBase = base.mul(10 ** IDecimals(address(want)).decimals()).div(sharePrice);
+            if(debtOutstanding > 0){
+                debtOutstanding = debtOutstanding.mul(10 ** IDecimals(address(want)).decimals()).div(sharePrice);
+            }
+            (uint256 shares, , ) = looksRareContract.userInfo(address(this));
+            uint256 upperlimit = Math.max(debtOutstanding,shares);
             //Withdraw the larger of the needed amount or of the base number.
             //In the case where we only need 0.5 LOOKS to meet our balance obligations we round up to 1 LOOKS to meet the withdraw floor.
-            looksRareContract.withdraw(Math.max(amount,base),false);
+            looksRareContract.withdraw(Math.max(amount,Math.max(convertedBase,upperlimit)),false);
         }
     }
 
@@ -175,14 +185,6 @@ event withdrawPreReportEvent(uint256 _amount);
             swapAmount = _sellRewards();
         }
 
-        //calculate the amount of LOOKS we need, cannot be less than 1 due to contract restrictions.
-        if(_debtOutstanding <= 1e18 && balanceOfWant() < _debtOutstanding){
-            uint256 sharePrice = _sharePrice();
-            uint256 withdrawPreReport = _debtOutstanding.mul(10 ** IDecimals(address(want)).decimals()).div(sharePrice);
-            //Withdraw any extra needed LOOKS > 1. Do not claim rewards as they were already claimed so we can save gas here.
-            looksRareContract.withdraw(withdrawPreReport,false);
-        }
-
         //Get current total LOOKS value of our share position
         uint256 currentShareValue = _stakedAmount();
         emit prepareReturnSharesValueEvent(currentShareValue);
@@ -198,7 +200,7 @@ event withdrawPreReportEvent(uint256 _amount);
         //Invoke funciton to withdraw the difference between profit and gain in the LOOKS token
         //This is because in Yearn Vaults line #1746 enforces a check that the balance must be greater than gain + debtpayment
         //We must calculate the growth in staked LOOKS otherwise it isn't ever going to get claimed, and we must withdraw it to pass this revert check.
-        withdrawProfitOrFloor(finalProfit);
+        withdrawProfitOrFloor(finalProfit, _debtOutstanding);
 
         //If there is no debt outstanding, deposit all looks back into contract and report back profit
         emit debtOutstandingEvent(_debtOutstanding);
@@ -212,26 +214,16 @@ event withdrawPreReportEvent(uint256 _amount);
         }
     }
     
-event toDepositEvent(uint256 _amount);
-event toDepositFloorEvent(uint256 _amount);
     function adjustPosition(uint256 _debtOutstanding) internal override {
         // TODO: Do something to invest excess `want` tokens (from the Vault) into your positions
         // NOTE: Try to adjust positions so that `_debtOutstanding` can be freed up on *next* harvest (not immediately)
 
-        //no need for us to use debt as we can always pull it out. This is just here to silence warnings in compiler of unused var.
-        uint256 debt = _debtOutstanding;
-
         //Figure out how much can be deposited
-        uint256 toDeposit = want.balanceOf(address(this));
-        emit toDepositEvent(toDeposit);
-
-        //set deposit floor as the looks contract doesn't allow staking below 1 LOOKS
-        uint256 depositFloor = 1 * 10 ** 18;
-        emit toDepositFloorEvent(depositFloor);
+        uint256 looseWant = balanceOfWant();
 
         //Deposit without claim as we'll claim rewards only on a prepare to better track.
-        if(toDeposit > depositFloor){
-            looksRareContract.deposit(toDeposit,false);
+        if(looseWant > base){
+            looksRareContract.deposit(looseWant,false);
         }
     }
 
@@ -331,7 +323,7 @@ event postWithdrawBalanceEvent(uint256 _amount);
         }
         
         //Now that all possible rewards are fully in LOOKS and in this address, we return the balance expressed in LOOKS
-        return want.balanceOf(address(this));
+        return balanceOfWant();
     }
 
 
@@ -360,7 +352,7 @@ event postWithdrawBalanceEvent(uint256 _amount);
 
         //If the WETH balance is non-zero we'll initiate a swap.
         if(wethCheck != 0){
-            _sellRewards();
+            WETH.safeTransferFrom(address(this), address(_newStrategy), wethCheck);
         }
         
             
