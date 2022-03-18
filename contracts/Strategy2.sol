@@ -47,7 +47,7 @@ interface ILooksRareFee {
 }
 
 interface IDecimals {
-    function decimals() external view returns (uint8);
+    function decimals() external view returns (uint256);
 }
 
 
@@ -120,28 +120,36 @@ contract Strategy is BaseStrategy {
         return balanceOfWant().add(currentShareValue);
     }
 
-    function withdrawProfitOrFloor(uint profit, uint256 debtOutstanding) internal {
+event profitEvent(uint256 _amount);
+event sharePriceEvent(uint256 _amount);
+event amountEvent(uint256 _amount);
+event sharesEvent(uint256 _amount);
+event convertedBaseEvent(uint256 _amount);
+event upperLimitEvent(uint256 _amount);
+    function withdrawProfitOrFloor(uint profit) internal {
+        emit profitEvent(profit);
         //Ensure we're not going to attempt to sub from unneeded balance
         uint256 sharePrice = _sharePrice();
-        uint256 amount = 0;
-        if(profit > balanceOfWant()){
-            amount = profit.sub(balanceOfWant());
-        }
-        if(amount > 0){
-            amount = amount.mul(10 ** IDecimals(address(want)).decimals()).div(sharePrice);
-        }
-        //Check that our staked amount is greater than 1 token which is min
-        //This way we do not attempt to withdraw 0 (which reverts)
-        if(_stakedAmount() >= base){
-            uint256 convertedBase = base.mul(10 ** IDecimals(address(want)).decimals()).div(sharePrice);
-            if(debtOutstanding > 0){
-                debtOutstanding = debtOutstanding.mul(10 ** IDecimals(address(want)).decimals()).div(sharePrice);
+        emit sharePriceEvent(sharePrice);
+        //In the unlikely event that profit ends up being exactly 0, this function would still be forced to needlessly withdraw 1 $LOOKS, so we should check for that edge case first.
+        if(profit > 0){
+            uint256 amount = profit.mul(10 ** IDecimals(address(want)).decimals()).div(sharePrice);
+            emit amountEvent(amount);
+            //Check that our staked amount is greater than 1 token which is min
+            //This way we do not attempt to withdraw 0 (which reverts)
+            if(_stakedAmount() >= base){
+                uint256 convertedBase = base.mul(10 ** IDecimals(address(want)).decimals()).div(sharePrice);
+                emit convertedBaseEvent(convertedBase);
+                (uint256 shares, , ) = looksRareContract.userInfo(address(this));
+                emit sharesEvent(shares);
+                //We can only withdraw either the smaller of our 'desired amount' or the max amount of shares we have.
+                uint256 upperlimit = Math.min(amount,shares);
+                emit upperLimitEvent(upperlimit);
+            
+                //Final withdrawal says we must withdraw the target amount (capped by upperlimit) or at least 1 LOOKS.
+                //In the case where we only need 0.5 LOOKS to meet our balance obligations we round up to 1 LOOKS to meet the withdraw floor.
+                looksRareContract.withdraw(Math.max(upperlimit,convertedBase),false);
             }
-            (uint256 shares, , ) = looksRareContract.userInfo(address(this));
-            uint256 upperlimit = Math.max(debtOutstanding,shares);
-            //Withdraw the larger of the needed amount or of the base number.
-            //In the case where we only need 0.5 LOOKS to meet our balance obligations we round up to 1 LOOKS to meet the withdraw floor.
-            looksRareContract.withdraw(Math.max(amount,Math.max(convertedBase,upperlimit)),false);
         }
     }
 
@@ -197,10 +205,15 @@ event withdrawPreReportEvent(uint256 _amount);
 
         emit finalProfitEvent(finalProfit);
 
-        //Invoke funciton to withdraw the difference between profit and gain in the LOOKS token
-        //This is because in Yearn Vaults line #1746 enforces a check that the balance must be greater than gain + debtpayment
-        //We must calculate the growth in staked LOOKS otherwise it isn't ever going to get claimed, and we must withdraw it to pass this revert check.
-        withdrawProfitOrFloor(finalProfit, _debtOutstanding);
+        uint256 amountNeeded = finalProfit.add(_debtOutstanding);
+        if(balanceOfWant() < amountNeeded) {
+            //Invoke funciton to withdraw the difference between profit and gain in the LOOKS token
+            //This is because in Yearn Vaults line #1746 enforces a check that the balance must be greater than gain + debtpayment
+            //We must calculate the growth in staked LOOKS otherwise it isn't ever going to get claimed, and we must withdraw it to pass this revert check.
+            withdrawProfitOrFloor(amountNeeded);
+        }
+
+
 
         //If there is no debt outstanding, deposit all looks back into contract and report back profit
         emit debtOutstandingEvent(_debtOutstanding);
